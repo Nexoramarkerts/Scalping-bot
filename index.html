@@ -1,0 +1,531 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEXORA Forex Scalping Bot</title>
+<style>
+:root{
+  --bg:#080d18;--panel:#111a2b;--panel2:#172238;
+  --line:#273650;--text:#edf3ff;--muted:#95a5bf;
+  --green:#35d49a;--red:#ff647c;--blue:#7da8ff;--gold:#ffc968;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+font:14px Arial,sans-serif}
+header{padding:19px 16px;background:#101a2c;border-bottom:1px solid var(--line)}
+h1{font-size:22px;margin:0 0 6px}
+h2{font-size:16px;margin:0 0 15px}
+p{line-height:1.5}
+.sub{color:var(--muted);font-size:12px}
+.wrap{max-width:1100px;margin:auto;padding:14px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.panel{background:var(--panel);border:1px solid var(--line);
+border-radius:13px;padding:15px;margin-bottom:12px;min-width:0}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.stat{background:var(--panel2);padding:12px;border-radius:9px;min-width:0}
+.stat small{display:block;color:var(--muted);margin-bottom:8px}
+.stat strong{font-size:20px;overflow-wrap:anywhere}
+label{display:block;color:var(--muted);font-size:12px;margin:12px 0 6px}
+input,select{width:100%;background:#0b1322;color:var(--text);
+border:1px solid var(--line);padding:11px;border-radius:8px;font-size:14px}
+button{padding:12px;border:0;border-radius:8px;font-weight:bold;
+cursor:pointer;background:var(--green);color:#07170f}
+button.secondary{background:var(--panel2);color:var(--text);
+border:1px solid var(--line)}
+button.danger{background:#48212d;color:#ffdce3}
+button:disabled{opacity:.5}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.pill{display:inline-block;padding:6px 9px;border-radius:20px;
+font-size:11px;background:#26364e;color:var(--muted)}
+.green{color:var(--green)}.red{color:var(--red)}
+.gold{color:var(--gold)}.blue{color:var(--blue)}
+.notice{padding:10px;border-radius:8px;background:#202b3e;
+color:#c4d4ef;font-size:12px;line-height:1.5}
+#log{max-height:250px;overflow:auto}
+.logitem{padding:9px 0;border-bottom:1px solid var(--line);font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{text-align:left;padding:10px 6px;border-bottom:1px solid var(--line)}
+th{color:var(--muted)}
+.tablewrap{overflow-x:auto}
+.full{grid-column:1/-1}
+@media(min-width:700px){
+ .grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>NEXORA <span class="green">SCALPER</span></h1>
+  <div class="sub">SMC + Price Action · M1 Entries · M5 Confirmation</div>
+  <p><span class="pill" id="connection">NOT CONNECTED</span>
+  <span class="pill">PAPER TRADING ONLY</span></p>
+</header>
+
+<main class="wrap">
+  <div class="notice">
+    This app analyzes market candles and simulates trades. It does not
+    place broker orders. A signal is not a guarantee of profit.
+    Use a market-data API key only; never put your broker password or
+    trading secret in this page.
+  </div>
+
+  <section class="panel" style="margin-top:12px">
+    <h2>Market connection</h2>
+    <label for="apiKey">Twelve Data API key</label>
+    <input id="apiKey" type="password" autocomplete="off"
+      placeholder="Paste your market-data API key">
+    <label for="symbol">Market</label>
+    <select id="symbol">
+      <option value="EUR/USD">EUR/USD</option>
+      <option value="GBP/USD">GBP/USD</option>
+      <option value="USD/JPY">USD/JPY</option>
+      <option value="AUD/USD">AUD/USD</option>
+      <option value="USD/CAD">USD/CAD</option>
+      <option value="XAU/USD">XAU/USD (Gold, if available)</option>
+    </select>
+    <div class="actions">
+      <button id="connect">Connect market data</button>
+      <button class="secondary" id="refresh">Refresh candles</button>
+    </div>
+    <p class="sub">Get a key at twelvedata.com. Free plans have request
+    limits and may restrict symbols or real-time data. Data is not guaranteed
+    to be real-time.</p>
+    <div id="feedStatus" class="sub">Waiting for market connection.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Paper account</h2>
+    <div class="stats">
+      <div class="stat"><small>Balance</small><strong id="balance">$1,000.00</strong></div>
+      <div class="stat"><small>Net P/L</small><strong id="pnl">$0.00</strong></div>
+      <div class="stat"><small>Wins / Losses</small><strong id="record">0 / 0</strong></div>
+      <div class="stat"><small>Open trade</small><strong id="openTrade">None</strong></div>
+    </div>
+    <div class="actions">
+      <button class="secondary" id="reset">Reset paper account</button>
+      <button class="danger" id="closeTrade">Close open trade</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Risk controls</h2>
+    <label for="starting">Starting balance ($)</label>
+    <input id="starting" type="number" min="10" value="1000">
+    <label for="risk">Risk per trade (%)</label>
+    <input id="risk" type="number" min="0.1" max="1" step="0.1" value="0.5">
+    <label for="rr">Risk-to-reward ratio</label>
+    <select id="rr">
+      <option value="1.5">1 : 1.5</option>
+      <option value="2" selected>1 : 2</option>
+      <option value="3">1 : 3</option>
+    </select>
+    <label for="dailyLimit">Daily loss limit (%)</label>
+    <input id="dailyLimit" type="number" min="1" max="10" value="2">
+    <label for="maxTrades">Maximum trades per day</label>
+    <input id="maxTrades" type="number" min="1" max="30" value="5">
+    <label for="poll">Refresh interval (minutes)</label>
+    <select id="poll">
+      <option value="1">1 minute</option>
+      <option value="5">5 minutes</option>
+    </select>
+    <div class="actions">
+      <button id="auto">Start auto paper-trading</button>
+      <button class="secondary" id="stop">Stop automation</button>
+    </div>
+    <p class="sub">The daily limit and trade count are safeguards for the
+    paper engine, not broker-side controls. Risk size uses a simplified
+    price-distance model, not broker-specific pip or contract valuation.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Market snapshot</h2>
+    <div class="stats">
+      <div class="stat"><small>Latest price</small><strong id="price">—</strong></div>
+      <div class="stat"><small>M5 direction</small><strong id="trend">—</strong></div>
+      <div class="stat"><small>M1 structure</small><strong id="structure">—</strong></div>
+      <div class="stat"><small>Signal</small><strong id="signal">WAIT</strong></div>
+    </div>
+    <p id="reason" class="sub">Connect market data to begin.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Latest candles</h2>
+    <div class="tablewrap">
+      <table><thead><tr><th>Time</th><th>Open</th><th>High</th>
+      <th>Low</th><th>Close</th></tr></thead>
+      <tbody id="candles"><tr><td colspan="5">No data yet.</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Trade history</h2>
+    <div class="tablewrap">
+      <table><thead><tr><th>Side</th><th>Entry</th><th>SL</th>
+      <th>TP</th><th>Result</th></tr></thead>
+      <tbody id="history"><tr><td colspan="5">No trades yet.</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Activity log</h2>
+    <div id="log"><div class="logitem">Bot initialized. Waiting for data.</div></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+/*
+ NEXORA SCALPER - client-side paper trading only.
+ Candle data: Twelve Data time_series REST API.
+ No broker execution and no broker credentials.
+*/
+
+const $ = id => document.getElementById(id);
+const state = {
+  m1: [], m5: [], connected: false, running: false,
+  timer: null, trade: null, history: [], balance: 1000,
+  starting: 1000, wins: 0, losses: 0, tradesToday: 0,
+  day: new Date().toLocaleDateString(), dayStartBalance: 1000,
+  lastProcessed: "", lastPoll: 0, symbol: "EUR/USD"
+};
+
+function log(message, type="") {
+  const div = document.createElement("div");
+  div.className = "logitem " + type;
+  div.textContent = new Date().toLocaleTimeString() + " — " + message;
+  $("log").prepend(div);
+}
+
+function num(id, fallback) {
+  const n = Number($(id).value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function money(n) {
+  return (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(2);
+}
+
+function setConnection(text, ok=false) {
+  $("connection").textContent = text;
+  $("connection").className = "pill " + (ok ? "green" : "red");
+}
+
+function validCandles(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map(c => ({
+    time: c.datetime || c.time || "",
+    open: Number(c.open), high: Number(c.high),
+    low: Number(c.low), close: Number(c.close)
+  })).filter(c => c.time && [c.open,c.high,c.low,c.close].every(Number.isFinite))
+    .reverse();
+}
+
+async function getCandles(interval) {
+  const key = $("apiKey").value.trim();
+  if (!key) throw new Error("Enter your Twelve Data API key first.");
+  const symbol = $("symbol").value;
+  const url = new URL("https://api.twelvedata.com/time_series");
+  url.searchParams.set("symbol", symbol);
+  url.searchParams.set("interval", interval);
+  url.searchParams.set("outputsize", "100");
+  url.searchParams.set("apikey", key);
+
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error("Market API HTTP " + response.status);
+  const data = await response.json();
+  if (data.status === "error" || data.code || !data.values) {
+    throw new Error(data.message || "No candles returned. Check API key, symbol and plan.");
+  }
+  return validCandles(data.values);
+}
+
+async function refreshData() {
+  if (state.lastPoll && Date.now() - state.lastPoll < 12000) {
+    // Avoid repeated taps causing rapid API requests.
+  }
+  $("feedStatus").textContent = "Fetching M1 and M5 candles…";
+  try {
+    const symbol = $("symbol").value;
+    const [m1,m5] = await Promise.all([getCandles("1min"), getCandles("5min")]);
+    if (symbol !== $("symbol").value) return;
+    if (m1.length < 30 || m5.length < 30) {
+      throw new Error("Not enough candle history for analysis.");
+    }
+    state.m1 = m1; state.m5 = m5; state.symbol = symbol;
+    state.connected = true; state.lastPoll = Date.now();
+    setConnection("DATA CONNECTED", true);
+    $("feedStatus").textContent = "Candles received. Last update: " + new Date().toLocaleTimeString();
+    analyze();
+    renderCandles();
+    manageTrade();
+    if (state.running) maybeEnter();
+  } catch (e) {
+    state.connected = false;
+    setConnection("DATA ERROR");
+    $("feedStatus").textContent = e.message;
+    log(e.message, "red");
+  }
+}
+
+function ema(data, period) {
+  if (data.length < period) return null;
+  const k = 2 / (period + 1);
+  let value = data.slice(0,period).reduce((a,b)=>a+b,0)/period;
+  for (let i=period;i<data.length;i++) value = data[i]*k+value*(1-k);
+  return value;
+}
+
+function atr(candles, period=14) {
+  if (candles.length < period+1) return null;
+  const ranges=[];
+  for (let i=1;i<candles.length;i++) {
+    const c=candles[i], prev=candles[i-1];
+    ranges.push(Math.max(c.high-c.low,Math.abs(c.high-prev.close),
+      Math.abs(c.low-prev.close)));
+  }
+  const last=ranges.slice(-period);
+  return last.reduce((a,b)=>a+b,0)/last.length;
+}
+
+function structure(candles) {
+  if (candles.length < 15) return "UNKNOWN";
+  const last=candles[candles.length-1];
+  const prev=candles.slice(-11,-1);
+  const high=Math.max(...prev.map(c=>c.high));
+  const low=Math.min(...prev.map(c=>c.low));
+  if (last.close > high) return "BULLISH BOS";
+  if (last.close < low) return "BEARISH BOS";
+  return "RANGE";
+}
+
+function engulfing(c) {
+  if (c.length < 2) return "NONE";
+  const a=c[c.length-2], b=c[c.length-1];
+  if (b.close>b.open && a.close<a.open &&
+      b.close>=a.open && b.open<=a.close) return "BULLISH";
+  if (b.close<b.open && a.close>a.open &&
+      b.open>=a.close && b.close<=a.open) return "BEARISH";
+  return "NONE";
+}
+
+function analyze() {
+  const a=state.m1, b=state.m5;
+  if (a.length<30 || b.length<30) return;
+  const last=a[a.length-1];
+  const closes5=b.map(c=>c.close);
+  const fast=ema(closes5,9), slow=ema(closes5,21);
+  const trend=fast===null||slow===null?"UNKNOWN":
+    fast>slow?"BULLISH":fast<slow?"BEARISH":"NEUTRAL";
+  const st=structure(a);
+  const candle=engulfing(a);
+  const volatility=atr(a);
+  const price=last.close;
+
+  // Conservative confirmation: M5 trend + M1 structure + engulfing.
+  let signal="WAIT", reason="Waiting for trend, structure and candle confirmation.";
+  if (trend==="BULLISH" && st==="BULLISH BOS" && candle==="BULLISH") {
+    signal="BUY"; reason="M5 bullish EMA trend + M1 bullish structure + bullish engulfing.";
+  } else if (trend==="BEARISH" && st==="BEARISH BOS" && candle==="BEARISH") {
+    signal="SELL"; reason="M5 bearish EMA trend + M1 bearish structure + bearish engulfing.";
+  }
+
+  $("price").textContent=price.toFixed(price<10?5:3);
+  $("trend").textContent=trend;
+  $("trend").className=trend==="BULLISH"?"green":trend==="BEARISH"?"red":"";
+  $("structure").textContent=st;
+  $("structure").className=st.includes("BULLISH")?"green":st.includes("BEARISH")?"red":"";
+  $("signal").textContent=signal;
+  $("signal").className=signal==="BUY"?"green":signal==="SELL"?"red":"gold";
+  $("reason").textContent=reason + (volatility ? " M1 ATR(14): "+volatility.toPrecision(5) : "");
+  state.currentSignal={signal,reason,price,atr:volatility,time:last.time};
+}
+
+function renderCandles() {
+  $("candles").replaceChildren();
+  state.m1.slice(-10).reverse().forEach(c=>{
+    const tr=document.createElement("tr");
+    [c.time,c.open,c.high,c.low,c.close].forEach(v=>{
+      const td=document.createElement("td");
+      td.textContent=typeof v==="number"?v.toFixed(v<10?5:3):v;
+      tr.appendChild(td);
+    });
+    $("candles").appendChild(tr);
+  });
+}
+
+function currentDayCheck() {
+  const today=new Date().toLocaleDateString();
+  if (today!==state.day) {
+    state.day=today; state.tradesToday=0;
+    state.dayStartBalance=state.balance;
+    log("New paper-trading day. Daily counters reset.");
+  }
+}
+
+function canEnter() {
+  currentDayCheck();
+  const limit=num("dailyLimit",2)/100;
+  const max=Math.max(1,Math.floor(num("maxTrades",5)));
+  const dailyLoss=state.dayStartBalance-state.balance;
+  if (state.trade) return "A paper trade is already open.";
+  if (state.tradesToday>=max) return "Daily trade limit reached.";
+  if (dailyLoss>=state.dayStartBalance*limit) return "Daily loss limit reached.";
+  if (!state.connected) return "Market data is not connected.";
+  return "";
+}
+
+function maybeEnter() {
+  if (!state.running || !state.currentSignal) return;
+  const s=state.currentSignal;
+  if (s.signal==="WAIT" || s.time===state.lastProcessed) return;
+  const block=canEnter();
+  if (block) { log(block); return; }
+  if (!s.atr || !Number.isFinite(s.atr) || s.atr<=0) {
+    log("Entry skipped: ATR unavailable."); return;
+  }
+
+  const riskPct=Math.min(1,Math.max(0.1,num("risk",0.5)))/100;
+  const riskMoney=state.balance*riskPct;
+  const distance=Math.max(s.atr*1.2, s.price*0.0001);
+  const rr=Math.max(1,Math.min(3,num("rr",2)));
+  const side=s.signal;
+  const sl=side==="BUY"?s.price-distance:s.price+distance;
+  const tp=side==="BUY"?s.price+distance*rr:s.price-distance*rr;
+
+  state.trade={side,entry:s.price,sl,tp,riskMoney,
+    riskDistance:distance,time:s.time,symbol:state.symbol};
+  state.lastProcessed=s.time;
+  state.tradesToday++;
+  log("PAPER "+side+" "+state.symbol+" at "+s.price+
+    "; SL "+sl+"; TP "+tp,"gold");
+  renderAccount();
+}
+
+function manageTrade() {
+  if (!state.trade || !state.m1.length) return;
+  const t=state.trade, last=state.m1[state.m1.length-1];
+  let result=null, exit=null;
+  if (t.side==="BUY") {
+    if (last.low<=t.sl) { result=-t.riskMoney; exit=t.sl; }
+    else if (last.high>=t.tp) { result=t.riskMoney*(t.tp-t.entry)/t.riskDistance; exit=t.tp; }
+  } else {
+    if (last.high>=t.sl) { result=-t.riskMoney; exit=t.sl; }
+    else if (last.low<=t.tp) { result=t.riskMoney*(t.entry-t.tp)/t.riskDistance; exit=t.tp; }
+  }
+  // If both levels occur in one candle, assume SL first for conservative testing.
+  if (t.side==="BUY" && last.low<=t.sl && last.high>=t.tp) {result=-t.riskMoney;exit=t.sl;}
+  if (t.side==="SELL" && last.high>=t.sl && last.low<=t.tp) {result=-t.riskMoney;exit=t.sl;}
+  if (result!==null) closeTrade(result,exit,"SL/TP");
+}
+
+function closeTrade(result,exit,reason) {
+  if (!state.trade) return;
+  const t=state.trade;
+  state.balance+=result;
+  if (result>=0) state.wins++; else state.losses++;
+  state.history.unshift({side:t.side,entry:t.entry,sl:t.sl,tp:t.tp,
+    result,exit,reason,symbol:t.symbol});
+  state.history=state.history.slice(0,100);
+  state.trade=null;
+  log("Closed "+t.side+" "+t.symbol+" at "+exit+
+    ". P/L "+money(result)+" ("+reason+").",result>=0?"green":"red");
+  renderAccount();
+  renderHistory();
+}
+
+function renderAccount() {
+  $("balance").textContent=money(state.balance);
+  $("pnl").textContent=money(state.balance-state.starting);
+  $("pnl").className=state.balance>=state.starting?"green":"red";
+  $("record").textContent=state.wins+" / "+state.losses;
+  $("openTrade").textContent=state.trade?state.trade.side:"None";
+  $("openTrade").className=state.trade?"gold":"";
+}
+
+function renderHistory() {
+  $("history").replaceChildren();
+  if (!state.history.length) {
+    $("history").innerHTML='<tr><td colspan="5">No trades yet.</td></tr>'; return;
+  }
+  state.history.slice(0,30).forEach(t=>{
+    const tr=document.createElement("tr");
+    [t.side+" "+t.symbol,t.entry.toPrecision(6),t.sl.toPrecision(6),
+      t.tp.toPrecision(6),money(t.result)].forEach((v,i)=>{
+      const td=document.createElement("td");
+      td.textContent=v;
+      if(i===4) td.className=t.result>=0?"green":"red";
+      tr.appendChild(td);
+    });
+    $("history").appendChild(tr);
+  });
+}
+
+function stopAutomation() {
+  state.running=false;
+  if(state.timer) clearInterval(state.timer);
+  state.timer=null;
+  $("auto").textContent="Start auto paper-trading";
+  log("Automation stopped.");
+}
+
+$("connect").addEventListener("click",refreshData);
+$("refresh").addEventListener("click",refreshData);
+
+$("auto").addEventListener("click",async()=>{
+  if (state.running) return;
+  if (!$("apiKey").value.trim()) {
+    log("Enter a market-data API key first.","red"); return;
+  }
+  if (!state.connected) await refreshData();
+  if (!state.connected) return;
+  state.running=true;
+  $("auto").textContent="Paper automation running";
+  log("Automatic paper-trading started. No broker orders are sent.","gold");
+  maybeEnter();
+  state.timer=setInterval(async()=>{
+    if (!state.running) return;
+    await refreshData();
+  },Math.max(1,num("poll",1))*60000);
+});
+
+$("stop").addEventListener("click",stopAutomation);
+
+$("closeTrade").addEventListener("click",()=>{
+  if (!state.trade) { log("There is no open paper trade."); return; }
+  const price=state.m1.at(-1)?.close;
+  if (!Number.isFinite(price)) return;
+  const t=state.trade;
+  const fraction=t.side==="BUY"?(price-t.entry)/t.riskDistance:
+    (t.entry-price)/t.riskDistance;
+  closeTrade(fraction*t.riskMoney,price,"Manual paper close");
+});
+
+$("reset").addEventListener("click",()=>{
+  stopAutomation();
+  state.starting=Math.max(10,num("starting",1000));
+  state.balance=state.starting;
+  state.wins=0;state.losses=0;state.tradesToday=0;
+  state.day=new Date().toLocaleDateString();
+  state.dayStartBalance=state.balance;
+  state.trade=null;state.history=[];state.lastProcessed="";
+  renderAccount();renderHistory();
+  log("Paper account reset to "+money(state.starting)+".");
+});
+
+$("symbol").addEventListener("change",()=>{
+  state.connected=false;
+  setConnection("NOT CONNECTED");
+  $("feedStatus").textContent="Market changed. Refresh candles.";
+  state.currentSignal=null;
+});
+
+renderAccount();
+renderHistory();
+setConnection("NOT CONNECTED");
+</script>
+</body>
+</html>
