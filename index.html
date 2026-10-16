@@ -25,23 +25,26 @@ a{color:var(--blue)}@media(min-width:760px){.grid{grid-template-columns:repeat(3
 <header>
 <h1>NEXORA <span class="green">SCALPER</span></h1>
 <div class="sub">SMC + PRICE ACTION | M1 ENTRY | M5 CONFIRMATION</div>
-<p><span class="pill" id="connection">NOT CONNECTED</span><span class="pill">PAPER TRADING ONLY</span></p>
+<p><span class="pill" id="connection">NOT CONNECTED</span><span class="pill">DERIV DATA · PAPER TRADING ONLY</span></p>
 </header>
 <main class="wrap">
 <div class="notice">This app never sends orders to a broker. Automatic trading means simulated paper trades. Demo candles are synthetic, not real market prices. Live data may be delayed or restricted by your provider. Never enter broker passwords or trading secrets here.</div>
 <section class="panel" style="margin-top:12px">
-<h2>Market connection</h2>
-<label for="dataMode">Data source</label>
-<select id="dataMode"><option value="live">Twelve Data API</option><option value="demo">Synthetic demo candles (testing only)</option></select>
-<label for="apiKey">Twelve Data API key</label><input id="apiKey" type="password" autocomplete="off" placeholder="Paste your API key (live mode only)">
+<h2>Broker connection</h2>
+<div class="grid">
+ <div><label for="broker">Broker</label><select id="broker"><option value="Deriv">Deriv</option></select></div>
+ <div><label for="accountType">Account</label><select id="accountType"><option value="demo">Demo account</option><option value="live">Live account</option></select></div>
+ <div><label for="accountId">Account ID</label><input id="accountId" autocomplete="off" placeholder="e.g. VRTC… or CR…"></div>
+</div>
+<label for="apiToken">Deriv API token (read access for this paper bot)</label><input id="apiToken" type="password" autocomplete="off" placeholder="Paste token from Deriv API token page">
 <label for="symbol">Market</label>
-<select id="symbol"><option value="EUR/USD">EUR/USD</option><option value="GBP/USD">GBP/USD</option><option value="USD/JPY">USD/JPY</option><option value="AUD/USD">AUD/USD</option><option value="USD/CAD">USD/CAD</option><option value="XAU/USD">XAU/USD (Gold, if supported)</option></select>
-<div class="actions"><button id="connect">Connect data</button><button class="secondary" id="refresh">Refresh candles</button></div>
-<div id="feedStatus" class="sub" style="margin-top:10px">Choose a data source to begin.</div>
-<p class="sub">Get an API key from <a href="https://twelvedata.com/" target="_blank" rel="noopener">Twelve Data</a>. Free plans may limit requests, history, symbols and real-time access.</p>
+<select id="symbol"><option value="EUR/USD">EUR/USD</option><option value="GBP/USD">GBP/USD</option><option value="USD/JPY">USD/JPY</option><option value="AUD/USD">AUD/USD</option><option value="USD/CAD">USD/CAD</option><option value="XAU/USD">XAU/USD (Gold, if available on Deriv)</option></select>
+<div class="actions"><button id="connect">Connect</button><button class="secondary" id="refresh">Refresh candles</button><button id="startBot">Start Bot</button><button class="danger" id="closeBot">Close Bot</button></div>
+<div id="feedStatus" class="sub" style="margin-top:10px">Enter your Deriv account ID and an API token with read access, then connect.</div>
+<p class="sub">Create a token in your Deriv account's API token settings with read access only. This page does not save the token. Start Bot runs simulated paper trades from Deriv candle data; it does not send buy/sell orders to Deriv. Live account selection does not mean live trading is enabled.</p>
 </section>
 <div class="grid">
-<section class="panel"><h2>Paper account</h2>
+<section class="panel"><h2>Paper account (simulated)</h2>
 <div class="stats">
 <div class="stat"><small>Balance</small><strong id="balance">$1,000.00</strong></div><div class="stat"><small>Net P/L</small><strong id="pnl">$0.00</strong></div><div class="stat"><small>Wins / Losses</small><strong id="record">0 / 0</strong></div><div class="stat"><small>Open trade</small><strong id="openTrade">None</strong></div>
 </div><div class="actions"><button class="secondary" id="reset">Reset account</button><button class="danger" id="closeTrade">Close trade</button></div></section>
@@ -52,8 +55,7 @@ a{color:var(--blue)}@media(min-width:760px){.grid{grid-template-columns:repeat(3
 <label for="dailyLimit">Daily loss limit (%)</label><input id="dailyLimit" type="number" min="1" max="10" value="2">
 <label for="maxTrades">Maximum trades per day</label><input id="maxTrades" type="number" min="1" max="30" value="5">
 <label for="poll">Refresh interval</label><select id="poll"><option value="1">1 minute</option><option value="5">5 minutes</option></select>
-<div class="actions"><button id="auto">Start auto paper-trading</button><button class="secondary" id="stop">Stop automation</button></div>
-<p class="sub">Risk sizing uses a simplified price-distance model. It does not account for broker pip value, contract size, spread or commission.</p>
+<p class="sub">Use Start Bot / Close Bot in the broker panel above. Risk sizing uses a simplified price-distance model and does not account for broker pip value, contract size, spread or commission.</p>
 </section>
 <section class="panel"><h2>Market analysis</h2><div class="stats">
 <div class="stat"><small>Latest price</small><strong id="price">—</strong></div><div class="stat"><small>M5 trend</small><strong id="trend">—</strong></div><div class="stat"><small>M1 structure</small><strong id="structure">—</strong></div><div class="stat"><small>Signal</small><strong id="signal">WAIT</strong></div>
@@ -66,44 +68,20 @@ a{color:var(--blue)}@media(min-width:760px){.grid{grid-template-columns:repeat(3
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
-const state={m1:[],m5:[],connected:false,running:false,timer:null,trade:null,history:[],balance:1000,starting:1000,wins:0,losses:0,tradesToday:0,day:new Date().toLocaleDateString(),dayStartBalance:1000,lastProcessed:"",lastPoll:0,symbol:"EUR/USD",currentSignal:null,demoSeed:0,busy:false};
+const state={m1:[],m5:[],connected:false,running:false,timer:null,trade:null,history:[],balance:1000,starting:1000,wins:0,losses:0,tradesToday:0,day:new Date().toLocaleDateString(),dayStartBalance:1000,lastProcessed:"",lastPoll:0,symbol:"EUR/USD",currentSignal:null,busy:false,ws:null,reqSeq:0,pending:{},authorizedLoginId:"",accountIsVirtual:null};
+const DERIV_APP_ID="1089";
+const DERIV_SYMBOLS={"EUR/USD":"frxEURUSD","GBP/USD":"frxGBPUSD","USD/JPY":"frxUSDJPY","AUD/USD":"frxAUDUSD","USD/CAD":"frxUSDCAD","XAU/USD":"frxXAUUSD"};
 function log(message,type=""){const d=document.createElement("div");d.className="logitem "+type;d.textContent=new Date().toLocaleTimeString()+" — "+message;$("log").prepend(d)}
 function money(n){return(n<0?"-$":"$")+Math.abs(n).toFixed(2)}
 function num(id,fallback){const n=Number($(id).value);return Number.isFinite(n)?n:fallback}
 function setConnection(t,ok=false){$("connection").textContent=t;$("connection").className="pill "+(ok?"green":"red")}
 function validCandles(rows){if(!Array.isArray(rows))return[];return rows.map(c=>({time:c.datetime||c.time||"",open:Number(c.open),high:Number(c.high),low:Number(c.low),close:Number(c.close)})).filter(c=>c.time&&[c.open,c.high,c.low,c.close].every(Number.isFinite)).sort((a,b)=>String(a.time).localeCompare(String(b.time)))}
-async function getCandles(interval){
- const key=$("apiKey").value.trim();if(!key)throw new Error("API key required. Paste your Twelve Data key.");
- const url=new URL("https://api.twelvedata.com/time_series");url.searchParams.set("symbol",$("symbol").value);url.searchParams.set("interval",interval);url.searchParams.set("outputsize","100");url.searchParams.set("apikey",key);
- let response,data;try{response=await fetch(url.toString());data=await response.json()}catch(e){throw new Error("Network/browser error. Check internet or try another browser.")}
- if(!response.ok||!Array.isArray(data.values)){const code=Number(data.code)||response.status;const message=data.message||response.statusText||"No candle data returned";if(code===401)throw new Error("API key rejected. Check your Twelve Data dashboard.");if(code===403)throw new Error("Access denied. Your plan may not support this market or interval.");if(code===429)throw new Error("API request limit reached. Wait before retrying.");throw new Error("Market API error ("+code+"): "+message)}
- return validCandles(data.values)
-}
-/* Synthetic candles test the interface only. They are not real quotes. */
-function syntheticCandles(count,interval,base,seed){
- let price=base;const output=[];const step=interval==="1min"?60000:300000;const now=Math.floor(Date.now()/step)*step;
- for(let i=count-1;i>=0;i--){const time=new Date(now-i*step).toISOString();const open=price;const drift=Math.sin((i+seed)*.23)*base*.000015;const move=(Math.sin((i+seed)*1.71)*.00012+Math.cos((i+seed)*.47)*.00008)*base+drift;const close=Math.max(base*.1,open+move);const wick=Math.abs(move)*.55+base*.000025;output.push({time,open,high:Math.max(open,close)+wick,low:Math.min(open,close)-wick,close});price=close}
- return output
-}
-function demoCandles(){
- const symbol=$("symbol").value;const bases={"EUR/USD":1.08,"GBP/USD":1.27,"USD/JPY":150,"AUD/USD":.66,"USD/CAD":1.36,"XAU/USD":2700};const base=bases[symbol]||1;
- state.demoSeed++;state.m1=syntheticCandles(100,"1min",base,state.demoSeed);state.m5=syntheticCandles(100,"5min",base,state.demoSeed+17);state.symbol=symbol;state.connected=true;
- setConnection("DEMO DATA",true);$("feedStatus").textContent="Synthetic candles generated for testing only. Not live market prices.";analyze();renderCandles();manageTrade();if(state.running)maybeEnter()
-}
-async function refreshData(){
- if(state.busy)return;state.busy=true;$("connect").disabled=true;$("refresh").disabled=true;
- try{
-  if($("dataMode").value==="demo"){demoCandles();log("Synthetic demo candles refreshed. Not live data.","gold");return}
-  $("feedStatus").textContent="Fetching M1 and M5 candles…";const symbol=$("symbol").value;
-  const [m1,m5]=await Promise.all([getCandles("1min"),getCandles("5min")]);
-  if(symbol!==$("symbol").value)return;
-  if(m1.length<30||m5.length<30)throw new Error("Too few candles. Check data access or try EUR/USD.");
-  state.m1=m1;state.m5=m5;state.symbol=symbol;state.connected=true;state.lastPoll=Date.now();setConnection("DATA CONNECTED",true);
-  $("feedStatus").textContent="Received "+m1.length+" M1 and "+m5.length+" M5 candles for "+symbol+". Updated "+new Date().toLocaleTimeString()+".";
-  analyze();renderCandles();manageTrade();if(state.running)maybeEnter();log("Market data updated: "+symbol,"green")
- }catch(e){state.connected=false;setConnection("DATA ERROR");$("feedStatus").textContent=e.message;log(e.message,"red")}
- finally{state.busy=false;$("connect").disabled=false;$("refresh").disabled=false}
-}
+function closeSocket(){if(state.ws){try{state.ws.onclose=null;state.ws.close()}catch(e){}state.ws=null}Object.values(state.pending).forEach(x=>{clearTimeout(x.timer);x.reject(new Error("Connection closed."))});state.pending={};state.connected=false;state.authorizedLoginId="";state.accountIsVirtual=null}
+function derivRequest(payload,timeoutMs=12000){return new Promise((resolve,reject)=>{if(!state.ws||state.ws.readyState!==WebSocket.OPEN){reject(new Error("Deriv WebSocket is not open. Tap Connect and try again."));return}const req_id=++state.reqSeq;const timer=setTimeout(()=>{delete state.pending[req_id];reject(new Error("Deriv request timed out. Check internet and retry."))},timeoutMs);state.pending[req_id]={resolve,reject,timer};state.ws.send(JSON.stringify({...payload,req_id}))})}
+function openSocket(){return new Promise((resolve,reject)=>{const ws=new WebSocket("wss://ws.derivws.com/websockets/v3?app_id="+DERIV_APP_ID);let settled=false;const timeout=setTimeout(()=>{if(!settled){settled=true;try{ws.close()}catch(e){}reject(new Error("Timed out opening Deriv connection."))}},12000);ws.onopen=()=>{if(!settled){settled=true;clearTimeout(timeout);resolve(ws)}};ws.onerror=()=>{if(!settled){settled=true;clearTimeout(timeout);reject(new Error("Could not open Deriv WebSocket. Check internet or try again."))}};ws.onclose=()=>{if(!settled){settled=true;clearTimeout(timeout);reject(new Error("Deriv closed the connection before connecting."))}};ws.onmessage=event=>{let data;try{data=JSON.parse(event.data)}catch(e){return}if(data.req_id&&state.pending[data.req_id]){const pending=state.pending[data.req_id];delete state.pending[data.req_id];clearTimeout(pending.timer);if(data.error)pending.reject(new Error(data.error.message||"Deriv API request failed."));else pending.resolve(data)}};ws.onclose=()=>{if(state.ws===ws){state.connected=false;setConnection("DISCONNECTED");$("feedStatus").textContent="Deriv connection closed. Tap Connect to reconnect.";if(state.running)stopAutomation();log("Deriv WebSocket disconnected.","red")}if(!settled){settled=true;clearTimeout(timeout);reject(new Error("Deriv closed the connection before connecting."))}}})}
+async function getCandles(symbol,granularity){const data=await derivRequest({ticks_history:symbol,adjust_start_time:1,count:100,end:"latest",style:"candles",granularity});if(!data.candles||!Array.isArray(data.candles))throw new Error("Deriv returned no candle history for "+symbol+".");return validCandles(data.candles.map(c=>({...c,time:new Date(Number(c.epoch)*1000).toISOString()})))}
+async function refreshData(){if(state.busy)return;state.busy=true;$("connect").disabled=true;$("refresh").disabled=true;try{if(!state.connected||!state.ws||state.ws.readyState!==WebSocket.OPEN)throw new Error("Not connected to Deriv. Tap Connect first.");const symbol=DERIV_SYMBOLS[$("symbol").value];if(!symbol)throw new Error("Unsupported market selected.");$("feedStatus").textContent="Fetching Deriv M1 and M5 candles…";const [m1,m5]=await Promise.all([getCandles(symbol,60),getCandles(symbol,300)]);if(m1.length<30||m5.length<30)throw new Error("Deriv returned too few candles. Try another market.");state.m1=m1;state.m5=m5;state.symbol=$("symbol").value;state.lastPoll=Date.now();setConnection("DERIV CONNECTED",true);$("feedStatus").textContent="Received "+m1.length+" M1 and "+m5.length+" M5 candles from Deriv for "+state.symbol+". Updated "+new Date().toLocaleTimeString()+".";analyze();renderCandles();manageTrade();if(state.running)maybeEnter();log("Deriv market data updated: "+state.symbol,"green")}catch(e){$("feedStatus").textContent=e.message;log(e.message,"red");if(/Not connected|closed|WebSocket|timed out/i.test(e.message)){state.connected=false;setConnection("CONNECTION ERROR")}}finally{state.busy=false;$("connect").disabled=false;$("refresh").disabled=false}}
+async function connectDeriv(){if(state.busy)return;state.busy=true;$('connect').disabled=true;setConnection("CONNECTING");$("feedStatus").textContent="Opening Deriv connection…";try{stopAutomation();closeSocket();const accountId=$("accountId").value.trim(),token=$("apiToken").value.trim();if(!accountId)throw new Error("Enter your Deriv Account ID.");if(!token)throw new Error("Enter a Deriv API token with read access.");const ws=await openSocket();state.ws=ws;const auth=await derivRequest({authorize:token});const loginId=String(auth.authorize?.loginid||"");if(!loginId)throw new Error("Deriv did not return an authorized account ID.");if(loginId.toUpperCase()!==accountId.toUpperCase())throw new Error("Account ID mismatch. Authorized token belongs to "+loginId+", not the ID entered.");const isVirtual=Number(auth.authorize?.is_virtual)===1;const selectedDemo=$("accountType").value==="demo";if(isVirtual!==selectedDemo)throw new Error("Account type mismatch. The token is connected to a "+(isVirtual?"demo":"live")+" account. Select the matching account type.");state.authorizedLoginId=loginId;state.accountIsVirtual=isVirtual;state.connected=true;setConnection("DERIV CONNECTED",true);const bal=auth.authorize?.balance,currency=auth.authorize?.currency;$("feedStatus").textContent="Authorized Deriv "+(isVirtual?"demo":"live")+" account "+loginId+(bal!==undefined?" · balance "+bal+" "+(currency||""):"")+". Loading market candles…";log("Deriv account authenticated: "+loginId+" ("+(isVirtual?"demo":"live")+"). Paper trading only.","green");state.busy=false;await refreshData()}catch(e){state.connected=false;setConnection("CONNECTION ERROR");$("feedStatus").textContent=e.message;log(e.message,"red");closeSocket()}finally{state.busy=false;$('connect').disabled=false}}
 function ema(values,period){if(values.length<period)return null;const k=2/(period+1);let v=values.slice(0,period).reduce((a,b)=>a+b,0)/period;for(let i=period;i<values.length;i++)v=values[i]*k+v*(1-k);return v}
 function atr(c,period=14){if(c.length<period+1)return null;const r=[];for(let i=1;i<c.length;i++){const x=c[i],p=c[i-1];r.push(Math.max(x.high-x.low,Math.abs(x.high-p.close),Math.abs(x.low-p.close)))}return r.slice(-period).reduce((a,b)=>a+b,0)/Math.min(period,r.length)}
 function structure(c){if(c.length<15)return"UNKNOWN";const last=c[c.length-1],prev=c.slice(-11,-1),hi=Math.max(...prev.map(x=>x.high)),lo=Math.min(...prev.map(x=>x.low));if(last.close>hi)return"BULLISH BOS";if(last.close<lo)return"BEARISH BOS";return"RANGE"}
@@ -136,12 +114,12 @@ function closeTrade(result,exit,reason){
 }
 function renderAccount(){$("balance").textContent=money(state.balance);$("pnl").textContent=money(state.balance-state.starting);$("pnl").className=state.balance>=state.starting?"green":"red";$("record").textContent=state.wins+" / "+state.losses;$("openTrade").textContent=state.trade?state.trade.side:"None";$("openTrade").className=state.trade?"gold":""}
 function renderHistory(){const body=$("history");body.replaceChildren();if(!state.history.length){body.innerHTML='<tr><td colspan="5">No trades yet.</td></tr>';return}state.history.slice(0,30).forEach(t=>{const tr=document.createElement("tr");[t.symbol+" "+t.side,t.entry.toPrecision(6),t.sl.toPrecision(6),t.tp.toPrecision(6),money(t.result)].forEach((v,i)=>{const td=document.createElement("td");td.textContent=v;if(i===4)td.className=t.result>=0?"green":"red";tr.appendChild(td)});body.appendChild(tr)})}
-function stopAutomation(){state.running=false;if(state.timer)clearInterval(state.timer);state.timer=null;$("auto").textContent="Start auto paper-trading";log("Automation stopped.")}
-$("connect").addEventListener("click",refreshData);$("refresh").addEventListener("click",refreshData);
-$("dataMode").addEventListener("change",()=>{state.connected=false;setConnection("NOT CONNECTED");$("feedStatus").textContent="Data source changed. Connect again."});
-$("symbol").addEventListener("change",()=>{state.connected=false;state.currentSignal=null;setConnection("NOT CONNECTED");$("feedStatus").textContent="Market changed. Connect again."});
-$("auto").addEventListener("click",async()=>{if(state.running)return;if(!$("apiKey").value.trim()&&$("dataMode").value==="live"){log("Enter a market-data API key, or select synthetic demo mode.","red");return}if(!state.connected)await refreshData();if(!state.connected)return;state.running=true;$("auto").textContent="Paper automation running";log("Paper automation started. No broker orders are sent.","gold");maybeEnter();state.timer=setInterval(async()=>{if(state.running)await refreshData()},Math.max(1,num("poll",1))*60000)});
-$("stop").addEventListener("click",stopAutomation);
+function stopAutomation(){state.running=false;if(state.timer)clearInterval(state.timer);state.timer=null;if($("startBot"))$("startBot").textContent="Start Bot";log("Bot stopped. No new paper trades will be opened.")}
+$("connect").addEventListener("click",connectDeriv);$("refresh").addEventListener("click",refreshData);
+$("symbol").addEventListener("change",()=>{state.currentSignal=null;state.m1=[];state.m5=[];$("feedStatus").textContent="Market changed. Refresh candles to update the analysis."});
+$("accountType").addEventListener("change",()=>{if(state.connected){closeSocket();setConnection("NOT CONNECTED");$("feedStatus").textContent="Account type changed. Tap Connect and authorize the matching account.";stopAutomation()}});
+$("startBot").addEventListener("click",async()=>{if(state.running)return;if(!state.connected){log("Connect and verify your Deriv account before starting the bot.","red");$("feedStatus").textContent="Not connected. Tap Connect first.";return}if(!state.m1.length||!state.m5.length)await refreshData();if(!state.connected||!state.m1.length)return;state.running=true;$("startBot").textContent="Bot Running";log("Bot started: automatic PAPER trades using Deriv candles. No Deriv orders are sent.","gold");maybeEnter();state.timer=setInterval(async()=>{if(state.running&&state.connected)await refreshData()},Math.max(1,num("poll",1))*60000)});
+$("closeBot").addEventListener("click",()=>{stopAutomation();if(state.trade&&state.m1.length){const price=state.m1.at(-1).close;const t=state.trade;const f=t.side==="BUY"?(price-t.entry)/t.riskDistance:(t.entry-price)/t.riskDistance;closeTrade(f*t.riskMoney,price,"Bot stopped / paper trade closed")}log("Close Bot pressed. Automation is stopped.")});
 $("closeTrade").addEventListener("click",()=>{if(!state.trade){log("There is no open paper trade.");return}const price=state.m1.at(-1)?.close;if(!Number.isFinite(price))return;const t=state.trade,f=t.side==="BUY"?(price-t.entry)/t.riskDistance:(t.entry-price)/t.riskDistance;closeTrade(f*t.riskMoney,price,"Manual paper close")});
 $("reset").addEventListener("click",()=>{stopAutomation();state.starting=Math.max(10,num("starting",1000));state.balance=state.starting;state.wins=0;state.losses=0;state.tradesToday=0;state.day=new Date().toLocaleDateString();state.dayStartBalance=state.balance;state.trade=null;state.history=[];state.lastProcessed="";renderAccount();renderHistory();log("Paper account reset to "+money(state.starting)+".")});
 renderAccount();renderHistory();setConnection("NOT CONNECTED");
